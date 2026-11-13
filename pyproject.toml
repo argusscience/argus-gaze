@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "argus-gaze"
-version = "0.3.0"
+version = "0.3.1"
 description = "Read, record and replay real-time data from Argus Science ETVision and ET3Space"
 readme = "README.md"
 license = "Apache-2.0"

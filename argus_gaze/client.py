@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import select
 import socket
 import sys
@@ -20,6 +21,8 @@ from typing import Callable, Dict, Iterator, List, Optional, Sequence
 
 from . import protocol as p
 from .gaze import to_gaze_sample
+
+log = logging.getLogger("argus_gaze.client")
 
 
 class ETVisionClient:
@@ -33,11 +36,25 @@ class ETVisionClient:
         self._cmd_buf = bytearray()
         self._data_buf = bytearray()
         self.pending_responses: List[p.Message] = []
+        self.protocol_version: Optional[int] = None
 
     # -- connection -------------------------------------------------------------------
-    def connect(self) -> None:
+    def connect(self, check_version: bool = True) -> None:
+        """Open the command connection and read ETVision's network protocol version.
+        Version 1 is the data layout read here; version 0 (earlier systems) is refused."""
         self.cmd_sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         self.cmd_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        if not check_version:
+            return
+        try:
+            self.protocol_version = self.get_protocol_version(timeout=2.0)
+        except (TimeoutError, p.ProtocolError) as exc:
+            log.warning("could not read the network protocol version (%s); reading version 1", exc)
+            return
+        if self.protocol_version == 0:
+            self.close()
+            raise p.ProtocolError("ETVision reports network protocol version 0, whose data layout "
+                                  "differs; this package reads version 1")
 
     def close(self) -> None:
         try:
@@ -112,28 +129,31 @@ class ETVisionClient:
             raise RuntimeError("ETVision returned an error for data item %d" % data_id)
         return p.decode_get_item_response(msg)
 
+    def get_protocol_version(self, timeout: Optional[float] = None) -> int:
+        self.send(p.get_version())
+        return p.decode_version_response(self.read_response(p.CMD_GET_VERSION, timeout))
+
     # -- AI model object types (manual commands 26 and 27) -------------------------------
     def get_ai_object_count(self, timeout: Optional[float] = None) -> int:
         """Number of object types defined by the AI model loaded in ETVision."""
         self.send(p.get_ai_object_count())
-        msg = self.read_response(p.CMD_GET_AIOBJ_TOTALNUM, timeout, also=(p.CMD_GET_DATAITEM,))
+        msg = self.read_response(p.CMD_GET_AIOBJ_TOTALNUM, timeout)
         return p.decode_ai_object_count_response(msg)
 
     def get_ai_object_info(self, object_id: int, timeout: Optional[float] = None) -> Optional[p.AIObjectInfo]:
         """Name, status and color of one object type; None when ETVision reports an error."""
         self.send(p.get_ai_object_info(object_id))
-        msg = self.read_response(p.CMD_GET_AIOBJ_INFO, timeout, also=(p.CMD_GET_DATAITEM,))
+        msg = self.read_response(p.CMD_GET_AIOBJ_INFO, timeout)
         if msg.is_error:
             return None
         return p.decode_ai_object_info_response(msg)
 
     def get_ai_object_names(self, timeout: float = 2.0) -> Dict[int, str]:
-        """Object type -> name for the AI model loaded in ETVision. Types are keyed by the
-        ID that ETVision returns, so the result does not depend on whether the model's
-        first name is numbered 0 or 1."""
+        """Object type -> name for the AI model loaded in ETVision. Types are numbered
+        from 1 to the count ETVision reports; 0 means no object."""
         count = self.get_ai_object_count(timeout)
         names: Dict[int, str] = {}
-        for object_id in range(count + 1):
+        for object_id in range(1, count + 1):
             info = self.get_ai_object_info(object_id, timeout)
             if info is not None and info.name:
                 names[info.object_id] = info.name

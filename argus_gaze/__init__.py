@@ -20,7 +20,7 @@ lerobot_export  convert a recording and its videos to a LeRobot dataset (needs n
 The ROS 2 node (ros2/argus_gaze_ros) publishes the same fields live.
 """
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 from .protocol import DataRecord  # noqa: F401
 from .gaze import GazeSample, to_gaze_sample  # noqa: F401

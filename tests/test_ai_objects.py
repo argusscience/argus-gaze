@@ -32,7 +32,7 @@ class AIObjectMessageTests(unittest.TestCase):
 
     def test_command_messages(self):
         m = p.parse_message(p.get_ai_object_count())
-        self.assertEqual((m.base_cmd, m.size), (26, 16))
+        self.assertEqual((m.base_cmd, m.size), (26, 20))
         m = p.parse_message(p.get_ai_object_info(5))
         self.assertEqual((m.base_cmd, m.size, m.arg_uint32()), (27, 20, 5))
 
@@ -57,6 +57,23 @@ class AIObjectClientTests(unittest.TestCase):
                 self.assertIsNone(c.get_ai_object_info(0))
                 self.assertEqual(c.get_ai_object_info(3).name, "cup")
                 self.assertEqual(c.get_ai_object_names(), names)
+        finally:
+            em.stop()
+
+    def test_protocol_version(self):
+        recs = synthetic.generate(duration_per_target_s=0.2)
+        em = Emulator(Source.from_records(recs), host="127.0.0.1", port=0)
+        port = em.start()
+        try:
+            with ETVisionClient("127.0.0.1", port) as c:
+                self.assertEqual(c.protocol_version, 1)
+        finally:
+            em.stop()
+        em = Emulator(Source.from_records(recs), host="127.0.0.1", port=0, protocol_version=0)
+        port = em.start()
+        try:
+            with self.assertRaises(p.ProtocolError):
+                ETVisionClient("127.0.0.1", port).connect()
         finally:
             em.stop()
 

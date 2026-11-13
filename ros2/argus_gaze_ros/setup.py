@@ -16,7 +16,7 @@ DEMO_CSV = os.path.relpath(os.path.join(HERE, "..", "..", "examples", "data",
 
 setup(
     name=PACKAGE,
-    version="0.3.0",
+    version="0.3.1",
     packages=[PACKAGE, "argus_gaze"],
     package_dir={"argus_gaze": LIBRARY},
     data_files=[

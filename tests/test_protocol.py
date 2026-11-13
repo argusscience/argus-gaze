@@ -7,9 +7,19 @@ from argus_gaze import synthetic
 
 class ChecksumTests(unittest.TestCase):
     def test_rule_matches_manual_examples_for_auto_calibration(self):
-        # Manual: CMD_START_AUTO_CALIBRATION checksum 0xD9, CMD_STOP_AUTO_CALIBRATION 0xD8
-        self.assertEqual(p.build_command(p.CMD_START_AUTO_CALIBRATION)[12], 0xD9)
-        self.assertEqual(p.build_command(p.CMD_STOP_AUTO_CALIBRATION)[12], 0xD8)
+        # Manual: 16-byte CMD_START_AUTO_CALIBRATION checksum 0xD9, CMD_STOP_AUTO_CALIBRATION 0xD8
+        self.assertEqual(p.build_message(p.CMD_START_AUTO_CALIBRATION)[12], 0xD9)
+        self.assertEqual(p.build_message(p.CMD_STOP_AUTO_CALIBRATION)[12], 0xD8)
+
+    def test_commands_without_argument_are_20_bytes(self):
+        # A zero argument, and the whole message sums to 0 (checksum rule of section 1)
+        for cmd in (p.CMD_GET_VERSION, p.CMD_START_AUTO_CALIBRATION, p.CMD_STOP_SDATA_UDP,
+                    p.CMD_GET_AIOBJ_TOTALNUM):
+            m = p.build_command(cmd)
+            self.assertEqual(len(m), 20)
+            self.assertEqual(struct.unpack_from("<II", m, 4), (20, cmd))
+            self.assertEqual(m[16:], b"\x00" * 4)
+            self.assertEqual(sum(m) & 0xFF, 0)
 
     def test_manual_example_bytes_for_set_xdat_are_accepted_as_legacy(self):
         # The 20 bytes printed in manual section 1 for XDAT = 100
@@ -31,7 +41,7 @@ class ChecksumTests(unittest.TestCase):
                   p.CMD_STOP_SVIDEO_UDP: 0xE5, p.CMD_STOP_RVIDEO_UDP: 0xE3,
                   p.CMD_START_SVFILE_RECORDING: 0xE2, p.CMD_CLOSE_SVFILE: 0xDF}
         for cmd, cs in manual.items():
-            self.assertEqual((p.build_command(cmd)[12] - cs) & 0xFF, 5, "command %d" % cmd)
+            self.assertEqual((p.build_message(cmd)[12] - cs) & 0xFF, 5, "command %d" % cmd)
 
 
 class DataRecordTests(unittest.TestCase):

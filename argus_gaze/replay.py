@@ -11,6 +11,7 @@ Supported:
     becomes a data socket and receives the stream
   * CMD_SET_XDAT: the value is written into subsequent records, as ETVision does
   * CMD_GET_DATAITEM: answered from the latest record
+  * CMD_GET_VERSION: network protocol version 1
   * CMD_START_AUTO_CALIBRATION / CMD_STOP_AUTO_CALIBRATION: acknowledged
   * CMD_GET_AIOBJ_TOTALNUM / CMD_GET_AIOBJ_INFO: answered from an AI model names file
     (--object-names, one name per line, first line = object type 1); error responses
@@ -87,9 +88,10 @@ class Source:
 class Emulator:
     def __init__(self, source: Source, host: str = "0.0.0.0", port: int = 5000,
                  speed: float = 1.0, loop: bool = True, live_timestamps: bool = True,
-                 object_names: Optional[Dict[int, str]] = None):
+                 object_names: Optional[Dict[int, str]] = None, protocol_version: int = 1):
         self.source = source
         self.object_names = object_names
+        self.protocol_version = protocol_version
         self.host, self.port = host, port
         self.speed = max(1e-6, speed)
         self.loop = loop
@@ -192,7 +194,9 @@ class Emulator:
         cmd = msg.base_cmd
         name = p.COMMAND_NAMES.get(cmd, str(cmd))
         log.debug("command %s from %s", name, addr)
-        if cmd == p.CMD_START_SDATA_UDP:
+        if cmd == p.CMD_GET_VERSION:
+            conn.sendall(p.encode_version_response(self.protocol_version))
+        elif cmd == p.CMD_START_SDATA_UDP:
             port = msg.arg_uint32()
             with self._lock:
                 self._udp_targets[(addr[0], port)] = True

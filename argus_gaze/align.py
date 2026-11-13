@@ -103,9 +103,8 @@ def looked_at(sample: GazeSample, objects: Mapping[Hashable, Vec3], radius: floa
 
 def object_name(sample: GazeSample, names: Sequence[str] | Mapping[int, str]) -> Optional[str]:
     """Name of the AI LMOT object type at the point of gaze, or None when there is none.
-    `names` maps type index to name, as read from the loaded model (ETVision commands
-    26 and 27, or the model's names file). A mapping is safest: whether the model's
-    first name is index 0 or 1 is still to be confirmed (0 is reported as no object)."""
+    `names` maps type to name, as read from the loaded model (ETVision commands 26 and
+    27, or the model's names file). Types are numbered from 1; 0 means no object."""
     t = sample.gaze_object
     if not t:
         return None

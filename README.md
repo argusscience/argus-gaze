@@ -3,14 +3,21 @@
 Read, record and replay real-time data from Argus Science ETVision and ET3Space, using the
 documented ETVision network protocol.
 
-**Version 0.3.0, November 2026.** Written against the public *ETVision Network Communication
+**Version 0.3.1, November 2026.** Written against the public *ETVision Network Communication
 Manual* v3.0 (October 2025), the *ETVision Manual* (September 2026) and the *ET3Space Manual*
-v1.9 (April 2026). The file reader has been run on real ETVision 1.0.12 recordings. The ROS 2
-node has been built and tested on ROS 2 Jazzy against the emulator replaying a real
-recording; the live network client has not yet been run against a real system.
+v1.9 (April 2026). The live client has been checked line by line against Argus Science's
+ETVision SDK samples, which have been run thousands of times with live ETVision data and video
+streams: the same commands, the same TCP connection sequence, and the same order, type and
+scale for every data item. The file reader has been run on real ETVision 1.0.12 recordings,
+and the ROS 2 node has been tested on ROS 2 Jazzy with a real recording replayed over this
+protocol.
 
 A sample dataset built with this code is on Hugging Face:
 [argus-science/et3space-workcell](https://huggingface.co/datasets/argus-science/et3space-workcell).
+
+Changes in 0.3.1: commands are sent as 20-byte messages, and the client asks ETVision for its
+network protocol version when it connects; the eye-camera image items are read as signed
+values; AI object types are read from 1; strings are UTF-8.
 
 Changes in 0.3.0: ROS 2 packages in `ros2/` publish the gaze fields live (see [ROS 2](#ros-2));
 the client reads the names of the AI model's object types (commands 26 and 27), and the
@@ -131,7 +138,7 @@ ros2 run tf2_ros static_transform_publisher --x 0.6 --y 0 --z 0 --yaw 3.1416 \
     --frame-id base_link --child-frame-id et3space_world
 ```
 
-Parameters (transport, position units, frame names, AI model names file) are in
+Parameters (transport, TCP by default; position units; frame names; AI model names file) are in
 [`config/argus_gaze.yaml`](ros2/argus_gaze_ros/config/argus_gaze.yaml). The names of the AI
 model's object types are read from ETVision when the node connects. Topic names are relative
 to the node's namespace, so several eye trackers can run side by side
@@ -170,25 +177,27 @@ demo recording in `examples/data`.
 
 ## Protocol notes
 
-What the code does at points where the protocol leaves a choice:
+How the code reads the protocol of the Network Communication Manual v3.0:
 
-1. **Checksum.** Outgoing commands use the rule in section 1 (two's complement of the byte
-   sum). Some printed examples carry a value 5 lower; the emulator accepts both.
-2. **CheckState** is read from bytes 48 to 55, and bit 59 (AI_Objects) is supported.
-3. **UpdateRate** (bytes 40 to 43) is read as an integer, with a float fallback if the
-   integer is implausible.
-4. **Time stamps** are in units of 100 ns from the device's own zero point; use
+1. **Commands** are 20-byte messages, with a zero argument where a command takes none, and the
+   checksum rule of section 1 (two's complement of the byte sum). Some printed examples carry
+   a value 5 lower; the emulator accepts both.
+2. **Protocol version.** On connecting, the client asks ETVision for its network protocol
+   version (command 0). Version 1, the layout of the manual v3.0, is read here; version 0,
+   used by earlier systems, has a different layout and is refused.
+3. **CheckState** is read from bytes 48 to 55, and bit 59 (AI_Objects) is supported.
+4. **UpdateRate** (bytes 40 to 43) is read as an integer.
+5. **Time stamps** are in units of 100 ns from the device's own zero point; use
    differences between them.
-5. **Item order** follows the Network Communication Manual v3.0, with the eyelid and blink
-   items after the aux sensor items (bits 48 to 50).
-6. **Status bits.** Only bits 2 to 5 (pupil and corneal reflection found, each eye) are
+6. **Item order and types** follow section 3, with the eyelid and blink items after the aux
+   sensor items (bits 48 to 50). The eye-camera image items (bits 6 to 15) are signed
+   16-bit values.
+7. **Status bits.** Only bits 2 to 5 (pupil and corneal reflection found, each eye) are
    interpreted.
-7. **`Gaze_AI_Obj_ID`** is read as 4 bytes.
-8. **Convergence point.** Computed from the two eyes' lines of gaze (closest approach).
-9. **AI model object names** (commands 26 and 27). A response with the command's own code or
-   with the code of command 25, as printed in the manual, is accepted. Object types are
-   queried from 0 up to the reported count, so the names do not depend on whether the model
-   numbers its first name 0 or 1.
+8. **`Gaze_AI_Obj_ID`** is read as 4 bytes.
+9. **Convergence point.** Computed from the two eyes' lines of gaze (closest approach).
+10. **AI model object names** (commands 26 and 27). Object types are numbered from 1 to the
+    count ETVision reports; 0 means no object.
 
 ## License
 

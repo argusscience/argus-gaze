@@ -17,8 +17,10 @@ Streaming data message CMD_DATA_MSG (0x81):
     56 data buffer: the items whose CheckState bit is set, in table order.
 
 Implementation notes:
-  * Checksums are computed by the rule in section 1. Some printed examples (commands
-    1-22) carry a value 5 lower; incoming messages with either value are accepted.
+  * Commands are 20-byte messages (a zero argument where a command takes none), with
+    the checksum rule of section 1. Some printed examples (commands 1-22) carry a value
+    5 lower; incoming messages with either value are accepted.
+  * The data layout read here is network protocol version 1 (CMD_GET_VERSION).
   * CheckState is read from bytes 48-55; bit 59 (AI_Objects) is supported.
   * UpdateRate is decoded as uint32, with a float32 fallback if the integer reading is
     implausible.
@@ -37,6 +39,7 @@ HEADER_SIZE = 16
 DATA_HEADER_SIZE = 56
 START_OF_RECORD = 0xFA
 
+CMD_GET_VERSION = 0
 CMD_START_DATAFILE_RECORDING = 1
 CMD_STOP_DATAFILE_RECORDING = 2
 CMD_OPEN_DATAFILE = 3
@@ -96,16 +99,16 @@ DATA_ITEMS: Tuple[ItemSpec, ...] = (
     (3, ("mark_value",), "B", 1.0),
     (4, ("xdat",), "H", 1.0),
     (5, ("cu_video_field_num",), "H", 1.0),
-    (6, ("left_pupil_pos_horz", "right_pupil_pos_horz"), "H", 1.0),
-    (7, ("left_pupil_pos_vert", "right_pupil_pos_vert"), "H", 1.0),
-    (8, ("left_pupil_diam", "right_pupil_diam"), "H", 0.01),
-    (9, ("left_pupil_height", "right_pupil_height"), "H", 0.01),
-    (10, ("left_cr_pos_horz", "right_cr_pos_horz"), "H", 1.0),
-    (11, ("left_cr_pos_vert", "right_cr_pos_vert"), "H", 1.0),
-    (12, ("left_cr_diam", "right_cr_diam"), "H", 1.0),
-    (13, ("left_cr2_pos_horz", "right_cr2_pos_horz"), "H", 1.0),
-    (14, ("left_cr2_pos_vert", "right_cr2_pos_vert"), "H", 1.0),
-    (15, ("left_cr2_diam", "right_cr2_diam"), "H", 1.0),
+    (6, ("left_pupil_pos_horz", "right_pupil_pos_horz"), "h", 1.0),
+    (7, ("left_pupil_pos_vert", "right_pupil_pos_vert"), "h", 1.0),
+    (8, ("left_pupil_diam", "right_pupil_diam"), "h", 0.01),
+    (9, ("left_pupil_height", "right_pupil_height"), "h", 0.01),
+    (10, ("left_cr_pos_horz", "right_cr_pos_horz"), "h", 1.0),
+    (11, ("left_cr_pos_vert", "right_cr_pos_vert"), "h", 1.0),
+    (12, ("left_cr_diam", "right_cr_diam"), "h", 1.0),
+    (13, ("left_cr2_pos_horz", "right_cr2_pos_horz"), "h", 1.0),
+    (14, ("left_cr2_pos_vert", "right_cr2_pos_vert"), "h", 1.0),
+    (15, ("left_cr2_diam", "right_cr2_diam"), "h", 1.0),
     (16, ("horz_gaze_coord",), "h", 0.1),
     (17, ("vert_gaze_coord",), "h", 0.1),
     (18, ("horz_gaze_offset",), "h", 1.0),
@@ -188,14 +191,15 @@ def build_message(cmd: int, argument: bytes = b"") -> bytes:
 
 
 def build_command(cmd: int, value: Optional[Union[int, str, bytes]] = None) -> bytes:
-    """Build a command message. Integer arguments are sent as uint32; strings (file
-    names) as bytes followed by a terminating zero byte."""
+    """Build a command message. Integer arguments are sent as uint32, and a command
+    without an argument carries a zero argument, so the message is 20 bytes. Strings
+    (file names) are sent as UTF-8 bytes followed by a terminating zero byte."""
     if value is None:
-        arg = b""
+        arg = b"\x00" * 4
     elif isinstance(value, int):
         arg = struct.pack("<I", value & 0xFFFFFFFF)
     elif isinstance(value, str):
-        arg = value.encode("ascii", errors="replace") + b"\x00"
+        arg = value.encode("utf-8", errors="replace") + b"\x00"
     else:
         arg = bytes(value)
     return build_message(cmd, arg)
@@ -219,6 +223,22 @@ def set_connect_type_tcp_data() -> bytes:
 
 def get_data_item(data_id: int) -> bytes:
     return build_command(CMD_GET_DATAITEM, int(data_id))
+
+
+def get_version() -> bytes:
+    """Ask ETVision for its network protocol version. Version 1 is the data layout of the
+    Network Communication Manual v3.0, which this package reads."""
+    return build_command(CMD_GET_VERSION)
+
+
+def encode_version_response(version: int) -> bytes:
+    return build_message(CMD_RSP_BIT | CMD_GET_VERSION, struct.pack("<I", int(version)))
+
+
+def decode_version_response(msg: Message) -> int:
+    if msg.is_error or not msg.argument:
+        raise ProtocolError("ETVision returned no protocol version")
+    return msg.argument[0]
 
 
 @dataclass
@@ -502,9 +522,8 @@ def decode_get_item_response(msg: Message) -> Dict[str, Union[int, float, bytes]
 # --------------------------------------------------------------------------------------
 # AI model object types (manual commands 26 and 27)
 # These describe the object types defined by the AI model loaded in ETVision (the names
-# in the model's AINames.txt file), not the objects currently detected.
-# The manual prints the response code of both as CMD_RSP_BIT | CMD_GET_DATAITEM; a
-# response carrying either that code or the command's own code is accepted.
+# in the model's AINames.txt file), not the objects currently detected. Object types
+# are numbered from 1; 0 means no object.
 # --------------------------------------------------------------------------------------
 @dataclass
 class AIObjectInfo:
@@ -530,9 +549,10 @@ def encode_ai_object_count_response(count: int, error: bool = False) -> bytes:
 def decode_ai_object_count_response(msg: Message) -> int:
     if msg.is_error:
         raise ProtocolError("ETVision returned an error for the AI object count")
-    if len(msg.argument) < 4:
+    a = msg.argument
+    if not a:
         raise ProtocolError("AI object count response too short")
-    return msg.arg_uint32()
+    return struct.unpack_from("<I", a, 0)[0] if len(a) >= 4 else a[0]
 
 
 def encode_ai_object_info_response(object_id: int, info: Optional[AIObjectInfo] = None) -> bytes:
@@ -541,7 +561,7 @@ def encode_ai_object_info_response(object_id: int, info: Optional[AIObjectInfo] 
         cmd = CMD_RSP_BIT | CMD_RSP_ERR_BIT | CMD_GET_AIOBJ_INFO
         return build_message(cmd, struct.pack("<IIII", int(object_id), 0, 0, 0))
     arg = struct.pack("<III", int(info.object_id), 1 if info.enabled else 0, int(info.color) & 0xFFFFFFFF)
-    arg += info.name.encode("ascii", errors="replace") + b"\x00"
+    arg += info.name.encode("utf-8", errors="replace") + b"\x00"
     return build_message(CMD_RSP_BIT | CMD_GET_AIOBJ_INFO, arg)
 
 
@@ -552,5 +572,5 @@ def decode_ai_object_info_response(msg: Message) -> AIObjectInfo:
     if len(a) < 12:
         raise ProtocolError("AI object info response too short")
     object_id, status, color = struct.unpack_from("<III", a, 0)
-    name = a[12:].split(b"\x00", 1)[0].decode("ascii", errors="replace")
+    name = a[12:].split(b"\x00", 1)[0].decode("utf-8", errors="replace").strip()
     return AIObjectInfo(object_id=object_id, enabled=bool(status), color=color, name=name)
