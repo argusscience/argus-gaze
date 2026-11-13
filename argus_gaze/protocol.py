@@ -16,13 +16,12 @@ Streaming data message CMD_DATA_MSG (0x81):
     40 UpdateRate (4 bytes)    44 reserved                48 CheckState (uint64)
     56 data buffer: the items whose CheckState bit is set, in table order.
 
-Points to confirm with Argus (see README, "Open questions"):
-  * Checksum examples for commands 1-22 in the manual are 5 lower than the stated
-    rule gives; the examples for commands 28-29 match the rule. We follow the rule.
-  * Section 1 says CheckState is at byte 47 and only bits 0-58 are used; the message
-    table puts it at bytes 48-55 and lists AI_Objects as bit 59. We follow the table.
-  * The data type of UpdateRate is not stated. We decode it as uint32 and fall back
-    to float32 if the integer reading is implausible.
+Implementation notes:
+  * Checksums are computed by the rule in section 1. Some printed examples (commands
+    1-22) carry a value 5 lower; incoming messages with either value are accepted.
+  * CheckState is read from bytes 48-55; bit 59 (AI_Objects) is supported.
+  * UpdateRate is decoded as uint32, with a float32 fallback if the integer reading is
+    implausible.
 """
 from __future__ import annotations
 
@@ -72,8 +71,8 @@ SOCKET_TYPE_RVIDEO_TCP = 9
 
 COMMAND_NAMES = {v: k for k, v in globals().items() if k.startswith("CMD_") and isinstance(v, int)}
 
-# The manual's checksum examples for commands 1-22 are consistently 5 lower than the
-# documented rule produces. A receiver should therefore accept either value.
+# Some printed checksum examples (commands 1-22) are 5 lower than the documented rule
+# produces. A receiver therefore accepts either value.
 LEGACY_CHECKSUM_OFFSET = 5
 
 
@@ -86,7 +85,7 @@ class ProtocolError(ValueError):
 # Each entry: (CheckState bit, [field names in buffer order], struct code, scale factor)
 # Struct codes: B uint8, b int8, H uint16, h int16, I uint32, f float32.
 # Paired left/right items share one bit and appear left first, then right.
-# Names are canonical snake_case; the manual's typos (e.g. "hdrtk_el") are normalised.
+# Names are canonical snake_case; spelling variants (e.g. "hdrtk_el") are normalised.
 # --------------------------------------------------------------------------------------
 ItemSpec = Tuple[int, Tuple[str, ...], str, float]
 
@@ -162,9 +161,9 @@ for _spec in DATA_ITEMS:
 BIT_BY_NAME = {name: spec[0] for name, spec in ITEM_BY_NAME.items()}
 INTEGER_CODES = {"B", "b", "H", "h", "I"}
 
-# Status byte bits that both manuals agree on (Network Comm Manual section 4;
-# ET3Space Manual appendix E). Bits 0, 1, 6 and 7 are described differently in the
-# two manuals and are kept only as the raw byte.
+# Status byte bits for pupil and corneal reflection found, each eye (Network Comm
+# Manual section 4; ET3Space Manual appendix E). The other bits are kept only as the
+# raw byte.
 STATUS_RIGHT_CR_FOUND = 1 << 2
 STATUS_RIGHT_PUPIL_FOUND = 1 << 3
 STATUS_LEFT_CR_FOUND = 1 << 4

@@ -173,7 +173,7 @@ class Emulator:
                 if not msg.checksum_ok:
                     log.warning("checksum mismatch on command %d from %s (accepted)", msg.base_cmd, addr)
                 elif msg.checksum_style == "legacy":
-                    log.info("command %d used the manual's example checksum (rule - 5)", msg.base_cmd)
+                    log.info("command %d used the earlier example checksum (rule - 5)", msg.base_cmd)
                 self._handle(conn, addr, msg)
         with self._lock:
             for key in [k for k in self._udp_targets if k[0] == addr[0]]:

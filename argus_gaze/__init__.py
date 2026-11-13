@@ -18,7 +18,7 @@ align      match gaze to objects a robot system already tracks (geometry or AI L
 lerobot_export  convert a recording and its videos to a LeRobot dataset (needs numpy, lerobot)
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 from .protocol import DataRecord  # noqa: F401
 from .gaze import GazeSample, to_gaze_sample  # noqa: F401
