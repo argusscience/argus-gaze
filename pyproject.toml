@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argus-gaze"
+version = "0.2.2"
+description = "Read, record and replay real-time data from Argus Science ETVision and ET3Space"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = []
+
+[project.optional-dependencies]
+lerobot = ["numpy", "lerobot[dataset]>=0.7"]
+
+[project.scripts]
+argus-gaze-client = "argus_gaze.client:main"
+argus-gaze-capture = "argus_gaze.capture:main"
+argus-gaze-replay = "argus_gaze.replay:main"
+argus-gaze-check = "argus_gaze.checks:main"
+
+[tool.setuptools]
+packages = ["argus_gaze"]
