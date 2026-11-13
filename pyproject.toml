@@ -1,12 +1,14 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "argus-gaze"
-version = "0.2.2"
+version = "0.2.3"
 description = "Read, record and replay real-time data from Argus Science ETVision and ET3Space"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.8"
 dependencies = []
 
