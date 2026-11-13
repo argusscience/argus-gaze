@@ -16,7 +16,6 @@ Two steps, so the first can be tested without LeRobot installed:
 from __future__ import annotations
 
 import json
-import math
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,33 +24,10 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from .csvfile import read_csv
-from .gaze import to_gaze_sample
+from .gaze import GAZE_FIELDS, spec_values, to_gaze_sample  # noqa: F401 (GAZE_FIELDS re-exported)
 
 NAN = float("nan")
 
-# name: (dtype, size, names) -- the order and names follow the field specification
-GAZE_FIELDS: Dict[str, Tuple[str, int, List[str]]] = {
-    "left_eye_position": ("float32", 3, ["x", "y", "z"]),
-    "right_eye_position": ("float32", 3, ["x", "y", "z"]),
-    "left_direction": ("float32", 3, ["x", "y", "z"]),
-    "right_direction": ("float32", 3, ["x", "y", "z"]),
-    "direction": ("float32", 3, ["x", "y", "z"]),
-    "convergence_point": ("float32", 3, ["x", "y", "z"]),
-    "convergence_miss": ("float32", 1, ["m"]),
-    "vergence_angle": ("float32", 1, ["rad"]),
-    "valid": ("float32", 2, ["left", "right"]),
-    "surface_id": ("int32", 1, ["id"]),
-    "surface_point": ("float32", 2, ["horizontal", "vertical"]),
-    "gaze_length": ("float32", 1, ["m"]),
-    "head_pose": ("float32", 7, ["x", "y", "z", "qx", "qy", "qz", "qw"]),
-    "pupil_diameter": ("float32", 2, ["left", "right"]),
-    "fixation_duration": ("float32", 1, ["s"]),
-    "event": ("int32", 1, ["code"]),
-    "gaze_object": ("int32", 1, ["type"]),
-    # proposed for v0.3 of the specification
-    "workcell_camera_point": ("float32", 2, ["u", "v"]),
-    "device_time": ("float32", 1, ["s"]),
-}
 
 
 @dataclass
@@ -61,12 +37,6 @@ class GazeTable:
     mark: np.ndarray                   # ETVision Mark value (int)
     fields: Dict[str, np.ndarray]      # name -> (n, size) arrays, as in GAZE_FIELDS
     header: dict                       # what the file says about itself
-
-
-def _v(x, size):
-    if x is None:
-        return [NAN] * size
-    return [NAN if v is None else float(v) for v in x]
 
 
 def gaze_table(csv_path: str) -> GazeTable:
@@ -79,35 +49,10 @@ def gaze_table(csv_path: str) -> GazeTable:
         g = to_gaze_sample(rec, units, et3space=et3s)
         t.append(rec.time_s if rec.time_s is not None else NAN)
         mark.append(int(g.mark) if g.mark is not None else 0)
-        lv, rv = g.left_valid, g.right_valid
-        rows["left_eye_position"].append(_v(g.left_eye_position if lv else None, 3))
-        rows["right_eye_position"].append(_v(g.right_eye_position if rv else None, 3))
-        rows["left_direction"].append(_v(g.left_gaze_direction if lv else None, 3))
-        rows["right_direction"].append(_v(g.right_gaze_direction if rv else None, 3))
-        d = g.gaze_direction
-        if d is not None:
-            n = math.sqrt(sum(c * c for c in d))
-            d = tuple(c / n for c in d) if n > 0 else None
-        rows["direction"].append(_v(d, 3))
-        rows["convergence_point"].append(_v(g.convergence_point, 3))
-        rows["convergence_miss"].append([NAN if g.convergence_miss is None else g.convergence_miss])
-        va = g.vergence_angle_deg
-        rows["vergence_angle"].append([NAN if va is None else math.radians(va)])
-        rows["valid"].append([float(lv), float(rv)])
-        rows["surface_id"].append([-1 if g.surface_id is None else g.surface_id])
-        rows["surface_point"].append(_v(g.surface_point, 2))
-        rows["gaze_length"].append([NAN if g.gaze_length is None else g.gaze_length])
-        if g.head_position is not None and g.head_quaternion is not None:
-            rows["head_pose"].append(list(g.head_position) + list(g.head_quaternion))
-        else:
-            rows["head_pose"].append([NAN] * 7)
-        rows["pupil_diameter"].append([NAN if g.left_pupil_diameter is None else g.left_pupil_diameter,
-                                       NAN if g.right_pupil_diameter is None else g.right_pupil_diameter])
-        rows["fixation_duration"].append([NAN if g.fixation_duration_s is None else g.fixation_duration_s])
-        rows["event"].append([0 if g.xdat is None else int(g.xdat)])
-        rows["gaze_object"].append([0 if g.gaze_object is None else int(g.gaze_object)])
-        rows["workcell_camera_point"].append(_v(g.stationary_camera_point, 2))
-        rows["device_time"].append([t[-1]])
+        vals = spec_values(g)
+        vals["device_time"] = [t[-1]]  # in a dataset: seconds from the start of the file
+        for k in GAZE_FIELDS:
+            rows[k].append(vals[k])
     fields = {k: np.asarray(v, dtype=GAZE_FIELDS[k][0]) for k, v in rows.items()}
     header = dict(etvision=desc.header.version, position_units=units, et3space=et3s,
                   started=desc.header.started, columns=desc.columns)

@@ -18,13 +18,39 @@ A type identifies a kind of object (two cups share one type); 0 means no object.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import List, Optional, Tuple
+import math
+from typing import Dict, List, Optional, Tuple
 
 from . import geometry as g
 from .protocol import (DataRecord, STATUS_LEFT_PUPIL_FOUND, STATUS_RIGHT_PUPIL_FOUND,
                        STATUS_LEFT_CR_FOUND, STATUS_RIGHT_CR_FOUND)
 
 Vec3 = Tuple[float, float, float]
+NAN = float("nan")
+
+# name: (dtype, size, names) -- the order and names follow the field specification
+GAZE_FIELDS: Dict[str, Tuple[str, int, List[str]]] = {
+    "left_eye_position": ("float32", 3, ["x", "y", "z"]),
+    "right_eye_position": ("float32", 3, ["x", "y", "z"]),
+    "left_direction": ("float32", 3, ["x", "y", "z"]),
+    "right_direction": ("float32", 3, ["x", "y", "z"]),
+    "direction": ("float32", 3, ["x", "y", "z"]),
+    "convergence_point": ("float32", 3, ["x", "y", "z"]),
+    "convergence_miss": ("float32", 1, ["m"]),
+    "vergence_angle": ("float32", 1, ["rad"]),
+    "valid": ("float32", 2, ["left", "right"]),
+    "surface_id": ("int32", 1, ["id"]),
+    "surface_point": ("float32", 2, ["horizontal", "vertical"]),
+    "gaze_length": ("float32", 1, ["m"]),
+    "head_pose": ("float32", 7, ["x", "y", "z", "qx", "qy", "qz", "qw"]),
+    "pupil_diameter": ("float32", 2, ["left", "right"]),
+    "fixation_duration": ("float32", 1, ["s"]),
+    "event": ("int32", 1, ["code"]),
+    "gaze_object": ("int32", 1, ["type"]),
+    # proposed for v0.3 of the specification
+    "workcell_camera_point": ("float32", 2, ["u", "v"]),
+    "device_time": ("float32", 1, ["s"]),
+}
 
 
 @dataclass
@@ -160,3 +186,47 @@ def to_gaze_sample(rec: DataRecord, position_units: str = "cm", et3space: bool =
         gaze_object=int(gaze_object) if gaze_object is not None else None,
         objects=objects,
     )
+
+
+def _v(x, size: int) -> List[float]:
+    if x is None:
+        return [NAN] * size
+    return [NAN if v is None else float(v) for v in x]
+
+
+def spec_values(s: GazeSample) -> Dict[str, List[float]]:
+    """The fields of the gaze field specification (GAZE_FIELDS) for one sample: SI units,
+    world frame, NaN where a value is not available. Values from an invalid eye are NaN.
+    The LeRobot converter and the ROS 2 node both use this, so they carry the same values."""
+    lv, rv = s.left_valid, s.right_valid
+    d = s.gaze_direction
+    if d is not None:
+        n = math.sqrt(sum(c * c for c in d))
+        d = tuple(c / n for c in d) if n > 0 else None
+    va = s.vergence_angle_deg
+    if s.head_position is not None and s.head_quaternion is not None:
+        head = list(s.head_position) + list(s.head_quaternion)
+    else:
+        head = [NAN] * 7
+    return {
+        "left_eye_position": _v(s.left_eye_position if lv else None, 3),
+        "right_eye_position": _v(s.right_eye_position if rv else None, 3),
+        "left_direction": _v(s.left_gaze_direction if lv else None, 3),
+        "right_direction": _v(s.right_gaze_direction if rv else None, 3),
+        "direction": _v(d, 3),
+        "convergence_point": _v(s.convergence_point, 3),
+        "convergence_miss": [NAN if s.convergence_miss is None else s.convergence_miss],
+        "vergence_angle": [NAN if va is None else math.radians(va)],
+        "valid": [float(lv), float(rv)],
+        "surface_id": [-1 if s.surface_id is None else s.surface_id],
+        "surface_point": _v(s.surface_point, 2),
+        "gaze_length": [NAN if s.gaze_length is None else s.gaze_length],
+        "head_pose": head,
+        "pupil_diameter": [NAN if s.left_pupil_diameter is None else s.left_pupil_diameter,
+                           NAN if s.right_pupil_diameter is None else s.right_pupil_diameter],
+        "fixation_duration": [NAN if s.fixation_duration_s is None else s.fixation_duration_s],
+        "event": [0 if s.xdat is None else int(s.xdat)],
+        "gaze_object": [0 if s.gaze_object is None else int(s.gaze_object)],
+        "workcell_camera_point": _v(s.stationary_camera_point, 2),
+        "device_time": [s.device_time_s],
+    }

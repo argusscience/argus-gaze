@@ -16,7 +16,7 @@ import select
 import socket
 import sys
 import time
-from typing import Callable, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Sequence
 
 from . import protocol as p
 from .gaze import to_gaze_sample
@@ -85,12 +85,14 @@ class ETVisionClient:
     def stop_recording(self) -> None:
         self.send(p.build_command(p.CMD_STOP_DATAFILE_RECORDING))
 
-    def read_response(self, cmd: int, timeout: Optional[float] = None) -> p.Message:
-        """Wait for a response to `cmd` on the command socket."""
+    def read_response(self, cmd: int, timeout: Optional[float] = None,
+                      also: Sequence[int] = ()) -> p.Message:
+        """Wait for a response to `cmd` (or to any command in `also`) on the command socket."""
         deadline = time.monotonic() + (self.timeout if timeout is None else timeout)
+        wanted = {cmd & 0xFF} | {c & 0xFF for c in also}
         while True:
             for i, m in enumerate(self.pending_responses):
-                if m.base_cmd == cmd & 0xFF:
+                if m.base_cmd in wanted:
                     return self.pending_responses.pop(i)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -109,6 +111,33 @@ class ETVisionClient:
         if msg.is_error:
             raise RuntimeError("ETVision returned an error for data item %d" % data_id)
         return p.decode_get_item_response(msg)
+
+    # -- AI model object types (manual commands 26 and 27) -------------------------------
+    def get_ai_object_count(self, timeout: Optional[float] = None) -> int:
+        """Number of object types defined by the AI model loaded in ETVision."""
+        self.send(p.get_ai_object_count())
+        msg = self.read_response(p.CMD_GET_AIOBJ_TOTALNUM, timeout, also=(p.CMD_GET_DATAITEM,))
+        return p.decode_ai_object_count_response(msg)
+
+    def get_ai_object_info(self, object_id: int, timeout: Optional[float] = None) -> Optional[p.AIObjectInfo]:
+        """Name, status and color of one object type; None when ETVision reports an error."""
+        self.send(p.get_ai_object_info(object_id))
+        msg = self.read_response(p.CMD_GET_AIOBJ_INFO, timeout, also=(p.CMD_GET_DATAITEM,))
+        if msg.is_error:
+            return None
+        return p.decode_ai_object_info_response(msg)
+
+    def get_ai_object_names(self, timeout: float = 2.0) -> Dict[int, str]:
+        """Object type -> name for the AI model loaded in ETVision. Types are keyed by the
+        ID that ETVision returns, so the result does not depend on whether the model's
+        first name is numbered 0 or 1."""
+        count = self.get_ai_object_count(timeout)
+        names: Dict[int, str] = {}
+        for object_id in range(count + 1):
+            info = self.get_ai_object_info(object_id, timeout)
+            if info is not None and info.name:
+                names[info.object_id] = info.name
+        return names
 
     def auto_calibrate(self, timeout: float = 10.0) -> bool:
         """Start auto calibration and wait for completion (manual command 28)."""

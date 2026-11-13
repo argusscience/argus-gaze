@@ -112,3 +112,19 @@ def object_name(sample: GazeSample, names: Sequence[str] | Mapping[int, str]) ->
     if isinstance(names, _MappingABC):
         return names.get(t)
     return names[t] if 0 <= t < len(names) else None
+
+
+def load_object_names(path: str, first_id: int = 1) -> Dict[int, str]:
+    """Read an AI model names file (one object name per line, as in the model's
+    AINames.txt) into object type -> name. Type 0 means no object, so the first line is
+    numbered `first_id` (1 by default). Prefer the names ETVision reports
+    (ETVisionClient.get_ai_object_names) when it is reachable."""
+    names: Dict[int, str] = {}
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        lines = [ln.strip() for ln in fh]
+    while lines and not lines[-1]:
+        lines.pop()
+    for i, name in enumerate(lines):
+        if name:
+            names[first_id + i] = name
+    return names

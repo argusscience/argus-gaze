@@ -12,13 +12,15 @@ capture    bit-exact recording of the live stream to a file, and reading it back
 csvfile    reader for ETVision text (.csv) data files
 replay     an ETVision emulator that streams recorded data over the same protocol
 geometry   unit conversion, head-pose rotation, convergence point of the two lines of gaze
-gaze       GazeSample: a tidy, SI-unit view of one record for downstream software
+gaze       GazeSample: a tidy, SI-unit view of one record; spec_values: the specification fields
 checks     consistency checks and a summary report for a recorded file
 align      match gaze to objects a robot system already tracks (geometry or AI LMOT name)
 lerobot_export  convert a recording and its videos to a LeRobot dataset (needs numpy, lerobot)
+
+The ROS 2 node (ros2/argus_gaze_ros) publishes the same fields live.
 """
 
-__version__ = "0.2.3"
+__version__ = "0.3.0"
 
 from .protocol import DataRecord  # noqa: F401
 from .gaze import GazeSample, to_gaze_sample  # noqa: F401

@@ -3,13 +3,19 @@
 Read, record and replay real-time data from Argus Science ETVision and ET3Space, using the
 documented ETVision network protocol.
 
-**Version 0.2.3, November 2026.** Written against the public *ETVision Network Communication
+**Version 0.3.0, November 2026.** Written against the public *ETVision Network Communication
 Manual* v3.0 (October 2025), the *ETVision Manual* (September 2026) and the *ET3Space Manual*
-v1.9 (April 2026). The file reader has been run on real ETVision 1.0.12 recordings; the live
-network client has not yet been run against a real system.
+v1.9 (April 2026). The file reader has been run on real ETVision 1.0.12 recordings. The ROS 2
+node has been built and tested on ROS 2 Jazzy against the emulator replaying a real
+recording; the live network client has not yet been run against a real system.
 
 A sample dataset built with this code is on Hugging Face:
 [argus-science/et3space-workcell](https://huggingface.co/datasets/argus-science/et3space-workcell).
+
+Changes in 0.3.0: ROS 2 packages in `ros2/` publish the gaze fields live (see [ROS 2](#ros-2));
+the client reads the names of the AI model's object types (commands 26 and 27), and the
+emulator answers them from a names file; the dataset converter and the ROS 2 node share one
+field conversion, `gaze.spec_values`.
 
 Changes in 0.2.3: released under the Apache License 2.0; documentation for publication.
 
@@ -30,16 +36,18 @@ LeRobot dataset; tests on rows from a real recording.
 | Module | What it does |
 |---|---|
 | `protocol` | Message layout, command builders and checksums, streaming data-record decoder and encoder (all 60 items, including the variable-length AI object list) |
-| `client` | Live client: TCP command socket plus a UDP or TCP data channel; XDAT, data-file control, single data items, auto calibration |
+| `client` | Live client: TCP command socket plus a UDP or TCP data channel; XDAT, data-file control, single data items, auto calibration, AI model object names |
 | `capture` | Records the live stream byte for byte to a `.agscap` file, and reads it back |
 | `csvfile` | Reads ETVision text (`.csv`) data files |
 | `replay` | ETVision emulator: replays a `.csv` or `.agscap` file over the same protocol, so software can be developed with no eye tracker present |
 | `geometry` | Units, head-pose rotation (azimuth, elevation, roll), convergence point of the two lines of gaze |
-| `gaze` | `GazeSample`: one record in SI units and named fields, the input for a ROS 2 node or a dataset converter. Includes the AI LMOT object type at the point of gaze and the list of recognized objects |
+| `gaze` | `GazeSample`: one record in SI units and named fields, including the AI LMOT object type at the point of gaze and the list of recognized objects. `spec_values` gives the fields of the specification, as used by the ROS 2 node and the dataset converter |
 | `align` | Matches gaze to objects a robot system already tracks: by geometry (line of gaze and convergence point against 3D object positions) or by AI LMOT object name |
 | `checks` | Consistency checks and a summary for a recorded file |
 | `lerobot_export` | Converts a recording and its videos to a LeRobot dataset (format v3.0), with the gaze fields of the field specification. Needs `numpy`, `lerobot[dataset]` and ffmpeg |
 | `synthetic` | **Synthetic test data for software testing only.** Never publish it or present it as a recording. |
+| `ros2/argus_gaze_msgs` | ROS 2 messages: `Gaze`, `Object`, `ObjectArray` |
+| `ros2/argus_gaze_ros` | ROS 2 node that publishes live gaze; launch files for a live ETVision and for the demo recording |
 
 Pure Python 3.8+, no dependencies, except `lerobot_export`: `pip install ".[lerobot]"`.
 
@@ -79,6 +87,56 @@ python -m unittest discover -s tests
 
 On the ETVision PC: click **Listen** in the Network Configuration dialog and tick
 **Send Data Result**. Use the address and port shown there.
+
+## ROS 2
+
+`ros2/argus_gaze_ros` publishes live gaze in ROS 2, and `ros2/argus_gaze_msgs` defines its
+messages. Tested on ROS 2 Jazzy. Clone the repository into a colcon workspace; the node
+installs the `argus_gaze` library with it.
+
+```bash
+mkdir -p ~/argus_ws/src && cd ~/argus_ws/src
+git clone https://github.com/argusscience/argus-gaze.git
+cd ~/argus_ws && colcon build && source install/setup.bash
+
+# Without an eye tracker: replay the demo recording as a live ETVision and publish it
+ros2 launch argus_gaze_ros demo.launch.py
+
+# With ETVision (address and port from its Network Configuration dialog)
+ros2 launch argus_gaze_ros argus_gaze.launch.py host:=192.168.1.20 port:=5000
+```
+
+| Topic | Type | Published |
+|---|---|---|
+| `/argus/gaze` | `argus_gaze_msgs/Gaze` | Every sample (180 Hz), in frame `et3space_world` |
+| `/argus/gaze/convergence_point` | `geometry_msgs/PointStamped` | Where the two lines of gaze meet, in every sample in which both eyes are valid |
+| `/argus/objects` | `argus_gaze_msgs/ObjectArray` | The objects AI LMOT recognizes in the scene camera image, with their names, when the list changes |
+| `/argus/event` | `std_msgs/UInt16` | The event code (XDAT), when it changes |
+| `/tf` | | `et3space_world` → `argus_head_tracker`: pose of the head-tracker sensor |
+| `/argus/set_event` | `std_msgs/UInt16` | Subscribed: sends an event code to ETVision, so robot actions are marked in the gaze record |
+
+`Gaze` carries the fields of the dataset, with the same names, units and values:
+`left_eye_position`, `right_eye_position`, `left_direction`, `right_direction`, `direction`,
+`convergence_point`, `convergence_miss`, `vergence_angle`, `valid`, `surface_id`,
+`surface_point`, `gaze_length`, `head_pose`, `pupil_diameter`, `fixation_duration`, `event`,
+`gaze_object` and `workcell_camera_point`, plus the ETVision time stamp and frame number.
+Messages are stamped with the host time at arrival. Units are in
+[`Gaze.msg`](ros2/argus_gaze_msgs/msg/Gaze.msg).
+
+Relate the gaze to the robot with one static transform from the robot base to
+`et3space_world`, for example:
+
+```bash
+ros2 run tf2_ros static_transform_publisher --x 0.6 --y 0 --z 0 --yaw 3.1416 \
+    --frame-id base_link --child-frame-id et3space_world
+```
+
+Parameters (transport, position units, frame names, AI model names file) are in
+[`config/argus_gaze.yaml`](ros2/argus_gaze_ros/config/argus_gaze.yaml). The names of the AI
+model's object types are read from ETVision when the node connects. Topic names are relative
+to the node's namespace, so several eye trackers can run side by side
+(`--ros-args -r __ns:=/operator2`). `colcon test --packages-select argus_gaze_ros` runs the
+node against the emulator over TCP and UDP.
 
 ## Convert a recording to a LeRobot dataset
 
@@ -127,6 +185,10 @@ What the code does at points where the protocol leaves a choice:
    interpreted.
 7. **`Gaze_AI_Obj_ID`** is read as 4 bytes.
 8. **Convergence point.** Computed from the two eyes' lines of gaze (closest approach).
+9. **AI model object names** (commands 26 and 27). A response with the command's own code or
+   with the code of command 25, as printed in the manual, is accepted. Object types are
+   queried from 0 up to the reported count, so the names do not depend on whether the model
+   numbers its first name 0 or 1.
 
 ## License
 

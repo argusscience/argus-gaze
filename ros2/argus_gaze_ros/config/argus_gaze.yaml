@@ -1,0 +1,16 @@
+# Parameters of the argus_gaze node. Host and port are the ones shown in ETVision's
+# Network Configuration dialog (click "Listen" there first).
+argus_gaze:
+  ros__parameters:
+    host: "192.168.1.20"
+    port: 5000
+    transport: "tcp"            # "tcp" or "udp"
+    udp_port: 0                 # local UDP port for transport "udp"; 0 = any free port
+    position_units: "cm"        # as set on ETVision: "cm" or "in"
+    et3space: true
+    world_frame: "et3space_world"
+    head_frame: "argus_head_tracker"
+    scene_camera_frame: "argus_scene_camera"
+    publish_tf: true
+    object_names_file: ""       # AI model names file, used only if ETVision does not report the names
+    reconnect_period: 2.0       # s

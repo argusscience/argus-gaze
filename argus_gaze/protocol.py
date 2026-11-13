@@ -497,3 +497,60 @@ def decode_get_item_response(msg: Message) -> Dict[str, Union[int, float, bytes]
         if len(names) == 2:
             out[names[1]] = struct.unpack(fmt, raw2)[0]
     return out
+
+
+# --------------------------------------------------------------------------------------
+# AI model object types (manual commands 26 and 27)
+# These describe the object types defined by the AI model loaded in ETVision (the names
+# in the model's AINames.txt file), not the objects currently detected.
+# The manual prints the response code of both as CMD_RSP_BIT | CMD_GET_DATAITEM; a
+# response carrying either that code or the command's own code is accepted.
+# --------------------------------------------------------------------------------------
+@dataclass
+class AIObjectInfo:
+    object_id: int
+    enabled: bool
+    color: int  # XRGB
+    name: str
+
+
+def get_ai_object_count() -> bytes:
+    return build_command(CMD_GET_AIOBJ_TOTALNUM)
+
+
+def get_ai_object_info(object_id: int) -> bytes:
+    return build_command(CMD_GET_AIOBJ_INFO, int(object_id))
+
+
+def encode_ai_object_count_response(count: int, error: bool = False) -> bytes:
+    cmd = CMD_RSP_BIT | CMD_GET_AIOBJ_TOTALNUM | (CMD_RSP_ERR_BIT if error else 0)
+    return build_message(cmd, struct.pack("<I", 0 if error else int(count)))
+
+
+def decode_ai_object_count_response(msg: Message) -> int:
+    if msg.is_error:
+        raise ProtocolError("ETVision returned an error for the AI object count")
+    if len(msg.argument) < 4:
+        raise ProtocolError("AI object count response too short")
+    return msg.arg_uint32()
+
+
+def encode_ai_object_info_response(object_id: int, info: Optional[AIObjectInfo] = None) -> bytes:
+    """Response to CMD_GET_AIOBJ_INFO; an error response when `info` is None."""
+    if info is None:
+        cmd = CMD_RSP_BIT | CMD_RSP_ERR_BIT | CMD_GET_AIOBJ_INFO
+        return build_message(cmd, struct.pack("<IIII", int(object_id), 0, 0, 0))
+    arg = struct.pack("<III", int(info.object_id), 1 if info.enabled else 0, int(info.color) & 0xFFFFFFFF)
+    arg += info.name.encode("ascii", errors="replace") + b"\x00"
+    return build_message(CMD_RSP_BIT | CMD_GET_AIOBJ_INFO, arg)
+
+
+def decode_ai_object_info_response(msg: Message) -> AIObjectInfo:
+    if msg.is_error:
+        raise ProtocolError("ETVision returned an error for the AI object info")
+    a = msg.argument
+    if len(a) < 12:
+        raise ProtocolError("AI object info response too short")
+    object_id, status, color = struct.unpack_from("<III", a, 0)
+    name = a[12:].split(b"\x00", 1)[0].decode("ascii", errors="replace")
+    return AIObjectInfo(object_id=object_id, enabled=bool(status), color=color, name=name)

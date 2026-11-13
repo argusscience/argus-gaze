@@ -12,6 +12,9 @@ Supported:
   * CMD_SET_XDAT: the value is written into subsequent records, as ETVision does
   * CMD_GET_DATAITEM: answered from the latest record
   * CMD_START_AUTO_CALIBRATION / CMD_STOP_AUTO_CALIBRATION: acknowledged
+  * CMD_GET_AIOBJ_TOTALNUM / CMD_GET_AIOBJ_INFO: answered from an AI model names file
+    (--object-names, one name per line, first line = object type 1); error responses
+    when no file is given
   * data-file commands: acknowledged silently (nothing is recorded)
 
 Sources:  --csv  ETVision text data file
@@ -83,8 +86,10 @@ class Source:
 
 class Emulator:
     def __init__(self, source: Source, host: str = "0.0.0.0", port: int = 5000,
-                 speed: float = 1.0, loop: bool = True, live_timestamps: bool = True):
+                 speed: float = 1.0, loop: bool = True, live_timestamps: bool = True,
+                 object_names: Optional[Dict[int, str]] = None):
         self.source = source
+        self.object_names = object_names
         self.host, self.port = host, port
         self.speed = max(1e-6, speed)
         self.loop = loop
@@ -209,6 +214,14 @@ class Emulator:
             conn.sendall(p.build_message(p.CMD_RSP_BIT | p.CMD_START_AUTO_CALIBRATION, b"\x00" * 8))
             time.sleep(0.2)
             conn.sendall(p.build_message(p.CMD_RSP_BIT | p.CMD_STOP_AUTO_CALIBRATION, b"\x00" * 8))
+        elif cmd == p.CMD_GET_AIOBJ_TOTALNUM:
+            names = self.object_names
+            conn.sendall(p.encode_ai_object_count_response(len(names or {}), error=names is None))
+        elif cmd == p.CMD_GET_AIOBJ_INFO:
+            object_id = msg.arg_uint32()
+            name = (self.object_names or {}).get(object_id)
+            info = None if name is None else p.AIObjectInfo(object_id, True, 0x00FFFFFF, name)
+            conn.sendall(p.encode_ai_object_info_response(object_id, info))
         elif cmd == p.CMD_STOP_AUTO_CALIBRATION:
             conn.sendall(p.build_message(p.CMD_RSP_BIT | p.CMD_STOP_AUTO_CALIBRATION, b"\x00" * 8))
         else:
@@ -287,13 +300,20 @@ def main(argv=None) -> int:
     ap.add_argument("--once", action="store_true", help="play once instead of looping")
     ap.add_argument("--original-timestamps", action="store_true",
                     help="keep recorded time stamps instead of the current clock")
+    ap.add_argument("--object-names", metavar="FILE",
+                    help="AI model names file (one name per line, first line = object type 1), "
+                         "used to answer AI object queries")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)s %(message)s")
     source = Source.from_csv(args.csv) if args.csv else Source.from_capture(args.capture)
+    names = None
+    if args.object_names:
+        from .align import load_object_names
+        names = load_object_names(args.object_names)
     em = Emulator(source, args.host, args.port, args.speed, loop=not args.once,
-                  live_timestamps=not args.original_timestamps)
+                  live_timestamps=not args.original_timestamps, object_names=names)
     port = em.start()
     print("ETVision emulator on port %d with %d records. Ctrl-C to stop." % (port, len(source.items)),
           file=sys.stderr)
