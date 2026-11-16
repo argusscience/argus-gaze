@@ -77,7 +77,7 @@ class GazeSample:
     # ET3Space surface hit
     surface_id: Optional[int]            # -1 when gaze is on no defined surface
     surface_point: Optional[Tuple[float, float]]  # metres in the surface frame
-    gaze_length: Optional[float]         # metres, eye to point of gaze on the surface
+    gaze_length: Optional[float]         # metres, scene camera to point of gaze on the surface
     # head tracker sensor pose in the world frame
     head_position: Optional[Vec3]        # metres
     head_orientation_deg: Optional[Vec3]  # azimuth, elevation, roll
