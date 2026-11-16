@@ -23,7 +23,7 @@ bool[2] valid                         # left, right: pupil and corneal reflectio
 
 int32 surface_id                      # ET3Space surface looked at; -1 when on no defined surface
 float32[2] surface_point              # m, point of gaze on that surface: horizontal, vertical
-float32 gaze_length                   # m, eye to the point of gaze on the surface
+float32 gaze_length                   # m, scene camera to the point of gaze on the surface
 
 geometry_msgs/Pose head_pose          # head-tracker sensor pose; also published as TF
 float32[2] pupil_diameter             # left, right; unit as set on ETVision
