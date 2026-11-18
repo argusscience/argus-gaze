@@ -15,6 +15,11 @@ protocol.
 A sample dataset built with this code is on Hugging Face:
 [argus-science/et3space-workcell](https://huggingface.co/datasets/argus-science/et3space-workcell).
 
+The session in that dataset is shown in a two-minute video,
+[3D gaze for robot learning](https://youtu.be/83hNNj1bsMk), and
+[argusscience.com/robot-training.html](https://argusscience.com/robot-training.html) describes
+the system it was recorded with.
+
 Changes in 0.3.1: commands are sent as 20-byte messages, and the client asks ETVision for its
 network protocol version when it connects; the eye-camera image items are read as signed
 values; AI object types are read from 1; strings are UTF-8.
